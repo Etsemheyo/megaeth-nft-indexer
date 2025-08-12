@@ -1,16 +1,14 @@
 {
   "name": "universal-nft-indexer",
   "version": "1.0.0",
-  "description": "A universal NFT indexer with batch contract scanning to prevent memory overflows.",
+  "description": "NFT indexer with batching and retry system",
   "main": "indexer-server.js",
   "scripts": {
     "start": "node indexer-server.js"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "express": "^4.18.2",
-    "node-fetch": "^3.3.2",
-    "web3": "^4.7.0"
-  },
-  "type": "module"
+    "dotenv": "^16.4.0",
+    "ethers": "^6.8.1",
+    "p-limit": "^4.0.0"
+  }
 }
