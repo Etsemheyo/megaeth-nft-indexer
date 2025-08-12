@@ -1,83 +1,68 @@
-// index.js - Universal NFT Indexer for MegaETH (Batch Optimized)
-
 import express from "express";
+import dotenv from "dotenv";
+import Web3 from "web3";
 import fetch from "node-fetch";
-import { ethers } from "ethers";
 
+dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ✅ Configurable ENV variables
-const MEGAETH_RPC = process.env.MEGAETH_RPC || "https://rpc.megaeth.network"; // Replace if needed
-const START_BLOCK = parseInt(process.env.START_BLOCK || "1"); // First block to scan
-const BLOCK_BATCH_SIZE = parseInt(process.env.BLOCK_BATCH_SIZE || "200"); // Keep small to avoid memory crash
-
-// Initialize provider
-const provider = new ethers.JsonRpcProvider(MEGAETH_RPC);
-
-// Function to fetch NFT metadata for a given contract
-async function fetchNFTMetadata(contractAddress, tokenId) {
-  try {
-    const abi = [
-      "function tokenURI(uint256 tokenId) view returns (string memory)",
-    ];
-    const contract = new ethers.Contract(contractAddress, abi, provider);
-    const uri = await contract.tokenURI(tokenId);
-
-    let metadataUrl = uri;
-    if (uri.startsWith("ipfs://")) {
-      metadataUrl = uri.replace("ipfs://", "https://ipfs.io/ipfs/");
-    }
-
-    const res = await fetch(metadataUrl);
-    if (!res.ok) throw new Error(`Failed to fetch metadata: ${metadataUrl}`);
-    return await res.json();
-  } catch (err) {
-    console.error(`Error fetching metadata for ${contractAddress} #${tokenId}:`, err.message);
-    return null;
-  }
+// Load your API key from env
+const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY;
+if (!ALCHEMY_API_KEY) {
+  console.error("❌ Missing ALCHEMY_API_KEY in environment variables.");
+  process.exit(1);
 }
 
-// Batch scanning blocks for NFT transfers
-async function scanBlocksInBatches() {
-  let latestBlock = await provider.getBlockNumber();
-  console.log(`🔍 Latest Block on MegaETH: ${latestBlock}`);
+const web3 = new Web3(`https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`);
 
-  for (let fromBlock = START_BLOCK; fromBlock <= latestBlock; fromBlock += BLOCK_BATCH_SIZE) {
-    let toBlock = Math.min(fromBlock + BLOCK_BATCH_SIZE - 1, latestBlock);
-    console.log(`📦 Scanning blocks ${fromBlock} to ${toBlock}...`);
+// Example: Load contract addresses to scan
+const contracts = [
+  // Put your NFT contract addresses here
+  "0x1234567890abcdef1234567890abcdef12345678",
+  "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+  // ...
+];
 
-    try {
-      const logs = await provider.getLogs({
-        fromBlock,
-        toBlock,
-        topics: [
-          ethers.id("Transfer(address,address,uint256)"), // ERC-721 Transfer event
-        ],
-      });
+// Scan contracts in small batches to prevent memory overload
+async function scanContracts(batchSize = 2) {
+  console.log(`🔍 Starting batch scan with batch size ${batchSize}...`);
 
-      for (const log of logs) {
-        const contractAddress = log.address;
-        const tokenId = ethers.getBigInt(log.topics[3]).toString();
+  for (let i = 0; i < contracts.length; i += batchSize) {
+    const batch = contracts.slice(i, i + batchSize);
+    console.log(`📦 Processing batch: ${batch.join(", ")}`);
 
-        console.log(`📌 Found NFT Transfer: ${contractAddress} Token #${tokenId}`);
-
-        const metadata = await fetchNFTMetadata(contractAddress, tokenId);
-        if (metadata) {
-          console.log(`✅ ${metadata.name || "Unnamed NFT"} - ${metadata.description || ""}`);
+    const promises = batch.map(async (address) => {
+      try {
+        const code = await web3.eth.getCode(address);
+        if (code && code !== "0x") {
+          console.log(`✅ Contract ${address} is active.`);
+          // You can add token scanning logic here
+        } else {
+          console.log(`⚠️ ${address} is not a contract.`);
         }
+      } catch (err) {
+        console.error(`❌ Error scanning ${address}:`, err.message);
       }
-    } catch (err) {
-      console.error(`⚠️ Error scanning block range ${fromBlock}-${toBlock}:`, err.message);
-    }
+    });
+
+    await Promise.all(promises);
+    console.log("⏳ Waiting before next batch...");
+    await new Promise((res) => setTimeout(res, 3000)); // Pause 3s between batches
   }
+
+  console.log("✅ All contracts scanned.");
 }
 
-app.get("/", async (req, res) => {
-  res.send("Universal NFT Indexer is running ✅");
+app.get("/", (req, res) => {
+  res.send("Universal NFT Indexer is running.");
 });
 
-app.listen(PORT, async () => {
+app.get("/scan", async (req, res) => {
+  await scanContracts(2);
+  res.send("Scanning completed.");
+});
+
+app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  await scanBlocksInBatches();
 });
